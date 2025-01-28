@@ -2,29 +2,34 @@
 <html>
 <head>
     <title>Leaflet Map</title>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        #map {
-            height: 100vh;
-            width: 100%;
+        html, body, #map {
+            height: 100%;
+            margin: 0;
+        }
+        .driver-tooltip {
+            font-size: 12px;
+            font-weight: bold;
         }
     </style>
 </head>
 <body>
     <div id="map"></div>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        // Initialize the map
-        const map = L.map('map').setView([51.505, -0.09], 13);
-
-        // Add a tile layer
+        let map = L.map('map').setView([51.505, -0.09], 13);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '© OpenStreetMap contributors',
         }).addTo(map);
 
-        const markers = [];
+        let markers = [];
+        let routeLayer = null;
+        const driverMarkers = new Map(); // To store driver markers by their name or ID
 
-        // Handle messages from React Native WebView
+        // Listen for messages from React Native
         window.document.addEventListener('message', (event) => {
             const message = JSON.parse(event.data);
 
@@ -32,25 +37,86 @@
                 const [lat, lng] = message.payload;
                 const zoom = message.zoom || map.getZoom();
                 map.setView([lat, lng], zoom);
+
             } else if (message.type === 'addMarker') {
                 const [lat, lng] = message.payload;
                 const marker = L.marker([lat, lng]).addTo(map);
                 markers.push(marker);
+
             } else if (message.type === 'clearMarkers') {
                 markers.forEach((marker) => map.removeLayer(marker));
                 markers.length = 0;
+
             } else if (message.type === 'setZoom') {
                 map.setZoom(message.payload);
-            }
-        });
 
-        // Send data back to React Native
-        map.on('click', (e) => {
-            const { lat, lng } = e.latlng;
-            if (window.ReactNativeWebView) {
-                window.ReactNativeWebView.postMessage(
-                    JSON.stringify({ type: 'mapClick', payload: { lat, lng } })
-                );
+            } else if (message.type === 'setRoute') {
+                const latLngs = message.payload; // Array of [lat, lng] pairs
+                if (routeLayer) {
+                    map.removeLayer(routeLayer);
+                }
+                routeLayer = L.polyline(latLngs, { color: 'blue' }).addTo(map);
+                map.fitBounds(routeLayer.getBounds());
+
+            } else if (message.type === 'addEmployeeMarkers') {
+                const employees = message.payload; // Array of employee details
+                employees.forEach((employee) => {
+                    const marker = L.marker(employee.pickUp.coordinates, {
+                        icon: L.icon({
+                            iconUrl: 'https://leafletjs.com/examples/custom-icons/leaf-green.png',
+                            iconSize: [25, 41],
+                            iconAnchor: [12, 41],
+                            popupAnchor: [1, -34],
+                        }),
+                    }).addTo(map);
+
+                    // Add click event to open employee card
+                    marker.on('click', () => {
+                        window.ReactNativeWebView.postMessage(
+                            JSON.stringify({ type: 'employeeClick', payload: employee })
+                        );
+                    });
+
+                    // Add tooltip
+                    marker.bindTooltip(
+                        `<span>${employee.fname} ${employee.lname[0]}.</span>`,
+                        { permanent: true, direction: 'top', offset: [0, -20] }
+                    );
+
+                    markers.push(marker);
+                });
+
+            } else if (message.type === 'setDriverMarker') {
+                const driver = message.payload; // Object with name, currentPosition, and speed
+                const driverName = driver.name;
+
+                // If the driver already has a marker, update it
+                if (driverMarkers.has(driverName)) {
+                    const existingMarker = driverMarkers.get(driverName);
+                    existingMarker.setLatLng(driver.currentPosition);
+
+                    existingMarker.getTooltip().setContent(
+                        `<span>${driverName} - (${driver.speed.toFixed(1)} km/h)</span>`
+                    );
+
+                } else {
+                    // Otherwise, create a new marker
+                    const newMarker = L.marker(driver.currentPosition, {
+                        icon: L.icon({
+                            iconUrl: 'https://leafletjs.com/examples/custom-icons/leaf-orange.png',
+                            iconSize: [25, 41],
+                            iconAnchor: [12, 41],
+                            popupAnchor: [1, -34],
+                        }),
+                    }).addTo(map);
+
+                    newMarker.bindTooltip(
+                        `<span>${driverName} - (${driver.speed.toFixed(1)} km/h)</span>`,
+                        { permanent: true, direction: 'top', offset: [0, -20] }
+                    );
+
+                    driverMarkers.set(driverName, newMarker);
+                }
             }
         });
     </script>
