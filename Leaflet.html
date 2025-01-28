@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Leaflet Map</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <style>
+        #map {
+            height: 100vh;
+            width: 100%;
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <script>
+        // Initialize the map
+        const map = L.map('map').setView([51.505, -0.09], 13);
+
+        // Add a tile layer
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors',
+        }).addTo(map);
+
+        const markers = [];
+
+        // Handle messages from React Native WebView
+        window.document.addEventListener('message', (event) => {
+            const message = JSON.parse(event.data);
+
+            if (message.type === 'setCenter') {
+                const [lat, lng] = message.payload;
+                const zoom = message.zoom || map.getZoom();
+                map.setView([lat, lng], zoom);
+            } else if (message.type === 'addMarker') {
+                const [lat, lng] = message.payload;
+                const marker = L.marker([lat, lng]).addTo(map);
+                markers.push(marker);
+            } else if (message.type === 'clearMarkers') {
+                markers.forEach((marker) => map.removeLayer(marker));
+                markers.length = 0;
+            } else if (message.type === 'setZoom') {
+                map.setZoom(message.payload);
+            }
+        });
+
+        // Send data back to React Native
+        map.on('click', (e) => {
+            const { lat, lng } = e.latlng;
+            if (window.ReactNativeWebView) {
+                window.ReactNativeWebView.postMessage(
+                    JSON.stringify({ type: 'mapClick', payload: { lat, lng } })
+                );
+            }
+        });
+    </script>
+</body>
+</html>
